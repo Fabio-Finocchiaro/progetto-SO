@@ -136,7 +136,7 @@ InserimentoOrdinatoInLista(&lis, de->d_name, tipo, path);  //COPIARE IN LISTA. i
 }
 closedir(dr);
 //ncores=get_nprocs(); //IMPORTANTE
-ncores=N;
+ncores=N; //Poiché nella VM mi da 1 solo core. Così vedo se funziona
 printf("\nQuesto PC ha %d cores\n", ncores);
 //
 for(i=0; i<ncores; i++){
