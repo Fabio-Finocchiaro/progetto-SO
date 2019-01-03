@@ -1,211 +1,230 @@
-
-//CONSEGNA 1
- //Con Opendir apriamo. Torna un puntatore che punta al tipo directory.  Controllo
-/* apriamo la directory passata da tastiera. 
-Readdir la leggiamo */
 #include<stdio.h>
-#include<unistd.h>
-#include<sys/socket.h>
 #include<stdlib.h>
-#include<arpa/inet.h>
+#include<sys/sem.h>
+#include<sys/ipc.h>
+#include<sys/types.h>
+#include<sys/shm.h>
+#include<unistd.h>
 #include<string.h>
-#include<pthread.h>
-#include<sys/sysinfo.h>
 #include<dirent.h>
+#include<sys/sysinfo.h>
+#include<sys/stat.h>
+#include<pthread.h>
 #define N 200
-//ANCORA NON FUNZIONA. Core dump creato
-int controlloterminaz[N];
-typedef struct ElemLista{
-char nome[N];
+
+//creo la lista
+typedef struct lista{
+char nome[64];
 int tipo;
-char path[N];  
+char path[200];
+}TipoElemLista;
 
-} TipoElemLista;
-
-typedef struct NodoLista{
+typedef struct nodolista{
 TipoElemLista info;
-struct NodoLista *next;
-} TipoNodoLista;
+struct nodolista *next;
+}Tiponodolista;
 
-typedef TipoNodoLista *TipoLista;
-//////////////////////////////////////////////////////////////// INSERIMENTO ORDINATO IN LISTA
-void InserimentoOrdinatoInLista (TipoLista *lis, char *elem, int tipo, char *path){
-TipoLista paux, prec, corr;
-char pathaux[N];
-if((paux=(TipoLista)malloc(sizeof(TipoNodoLista)))==NULL){
-printf("ERRORE ALLOCAZIONE MEMORIA");
+typedef Tiponodolista* Tipolista;
+
+int controlloterminazione[N];
+
+Tipolista lis = NULL;
+pthread_mutex_t mutex_lista;
+pthread_mutex_t mutex2_lista;
+void *funzione_thread(void*arg);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void inserimentoordinatoinlista(Tipolista *lis, char* elem, int elem2, char* path){
+Tipolista paux, prec, cor;
+char pathaux[200];
+if((paux = (Tipolista)malloc(sizeof(Tiponodolista))) == NULL){
+perror("ERRORE ALLOCAZIONE MEMORIA");
 exit(1);
 }
+
 strcpy(paux->info.nome, elem);
-paux->info.tipo= tipo;
+paux->info.tipo = elem2;
 strcpy(pathaux, path);
-strcat(pathaux, "/");
+strcat(pathaux,"/");
 strcat(pathaux, paux->info.nome);
 strcpy(paux->info.path, pathaux);
-corr=*lis;
-prec=NULL;
-while(corr!=NULL && strcmp(corr->info.nome, elem)<0){
-prec=corr;
-corr=corr->next;
+cor = *lis;
+prec = NULL;
+while(cor != NULL && strcmp(cor->info.nome, elem) < 0){
+prec = cor;
+cor = cor->next;
 }
-paux->next=corr;
-if(prec!=NULL)
-prec->next=paux;
+
+paux->next = cor;
+
+if(prec != NULL)
+prec->next = paux;
 else
 *lis=paux;
 }
-///////////////////////////////////////////////////////////// VISITA LISTA //////////////////////////////////////
-void Visita_Lista (TipoLista lis){
-while(lis!=NULL){
-if(lis->info.tipo==1)
-printf("Tipo: Directory. Nome: %s Path: %s\n\n", lis->info.nome, lis->info.path);
-else
-printf("Tipo: File. Nome: %s Path: %s\n\n", lis->info.nome, lis->info.path);
-lis=lis->next;
-}
-}//////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////// SCANSIONA LISTA /////////////////////////////
-void ScansionaLista (TipoLista *lis){
-int tipo;
-DIR *dr;
-struct dirent *de;
-while((*lis)!=NULL){
-if((*lis)->info.tipo==1){
-dr=opendir((*lis)->info.path);
-if(dr!=NULL){
-while((de=readdir(dr))!=NULL){
-if(de->d_type==DT_DIR) {
-tipo=1;
-InserimentoOrdinatoInLista(&(*lis), de->d_name, tipo, (*lis)->info.path);
-ScansionaLista(&(*lis));
-}
-else
-tipo=0;
-InserimentoOrdinatoInLista(&(*lis), de->d_name, tipo, (*lis)->info.path);  //COPIARE IN LISTA. incrementare lista
-}//dr
-}//while
-}//if
-*lis=(*lis)->next;
-}//while
-}//funz
 
-void *Funzione_Thread(void *arg);
-TipoLista lis=NULL;
-pthread_mutex_t MutexLista;
-pthread_mutex_t Mutex2Lista;
-TipoLista TrovaDir(TipoLista lista);
-///////////////////////////////////// ELIMAZIONE DIRECTORY /////////////7
-void EliminaDirectory(TipoLista *lis, TipoElemLista elem){
-TipoLista paux;
-if(*lis!=NULL)
-if(strcmp((*lis)->info.path, elem.path)==0){
-paux=*lis;
-*lis=(*lis)->next;
-free(paux);
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void visitalista(Tipolista lis){
+while(lis != NULL){
+//printf("%s \n", lis->info.nome);
+if (lis->info.tipo == 1){
+printf("Directory\n");
 }
-else
-EliminaDirectory(&(*lis)->next, elem);
+printf("%s\n", lis->info.path);
+lis = lis->next;
+}
 }
 
-////////////////////////////////////////// MAIN /////////////////////////////////////////
-int main(){
-int dir, tipo;
-pthread_mutex_init(&MutexLista,NULL);
-pthread_mutex_init(&Mutex2Lista,NULL);
-struct dirent *de;
-char path[N];
-pthread_t th[N]; //tanti thread quanti cores
-int ncores, i,res;
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-for(i=0;i<N;i++){
-controlloterminaz[i]=0; //per far terminare i thread tutti insieme quando non ci sono più directory
-}
-pthread_mutex_lock(&MutexLista);
-DIR *dr;
-printf("Inserisci path assoluto: ");
-scanf("%s", path);
-dr=opendir(path);
-if(dr!=NULL){
-while((de=readdir(dr))!=NULL){
-if(de->d_type==DT_DIR)
-tipo=1;
-else
-tipo=0;
-InserimentoOrdinatoInLista(&lis, de->d_name, tipo, path);  //COPIARE IN LISTA. incrementare lista
-}
-}
-closedir(dr);
-//ncores=get_nprocs(); //IMPORTANTE
-ncores=N; //Poiché nella VM mi da 1 solo core. Così vedo se funziona
-printf("\nQuesto PC ha %d cores\n", ncores);
-//
-for(i=0; i<ncores; i++){
-res=pthread_create(&th[i], NULL, Funzione_Thread, (void *)(intptr_t)i); //HO SOST NULL CON i
-if(res!=0){
-printf("Errore creazione thread.\n");
-exit(EXIT_FAILURE);
-}
-pthread_mutex_unlock(&MutexLista);
-}//fine for*/
-for(i=0; i<ncores; i++){
-res=pthread_join(th[i],NULL);
-if(res!=0){
-printf("Errore join\n");
-exit(EXIT_FAILURE);
-}//if
-}
-Visita_Lista(lis);
-pthread_mutex_destroy(&MutexLista);
-pthread_mutex_destroy(&Mutex2Lista);
-} //fine main
-//////////////////////////////////////////////////////////// FUNZIONE THREAD ///////////////////////////////////
-void *Funzione_Thread(void *arg){
-int numcores=(intptr_t)arg;
-int tipo;
-int finito=0;
-char pathaux[N];
-TipoLista esistedirectory;
+void scansionalista(Tipolista *lis){
 
-while(!finito){
-pthread_mutex_lock(&MutexLista);
-esistedirectory= TrovaDir(lis);
-if(esistedirectory!=NULL){
-EliminaDirectory(&lis, esistedirectory->info);
-esistedirectory->next=NULL;
-pthread_mutex_unlock(&MutexLista);
-finito=1; //sbagliato. solo x vedere se funziona
-strcpy(pathaux, esistedirectory->info.path);
 
-pthread_mutex_lock(&Mutex2Lista);
-controlloterminaz[numcores]=0;
-pthread_mutex_unlock(&Mutex2Lista);
-
-DIR *dr;
-struct dirent *de;
-dr=opendir(pathaux);
-if(dr!=NULL){
-while((de=readdir(dr))!=NULL){
-if(de->d_type==DT_DIR) {
-tipo=1;
-InserimentoOrdinatoInLista(&lis, de->d_name, tipo, pathaux);
 }
-else
-tipo=0;
-InserimentoOrdinatoInLista(&lis, de->d_name, tipo, pathaux);
-}//dr
-}//while
-}
-
-}//while
-}//funz thread
-//////////////////////////////////// TROVA DIRECTORY //////////////////////////////
-TipoLista TrovaDir(TipoLista lista){ //se c'è ancora una directory torna il puntatore
-while(lis!=NULL){
-if(lista->info.tipo==1){
-return lista;
+//questa funzione mi permette di restituirmi il puntatore alla directory in modo da poterlo utilizzare
+Tipolista trovaDir(Tipolista lis){
+while(lis!= NULL){
+if (lis->info.tipo==1){
+return lis;
 }else
-lista=lista->next;
+lis = lis->next;
 }
 return NULL;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void eliminadirectory(Tipolista* lis, TipoElemLista elem){
+Tipolista paux;
+if((*lis) != NULL)
+if(strcmp((*lis)->info.path, elem.path)==0){
+printf("%s, ", elem.path);
+paux = (*lis);
+(*lis) = (*lis)->next;
+free(paux);
+printf("tolto\n");
+}
+else
+eliminadirectory(&(*lis)->next, elem);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+int main(void){
+
+//utilizzo una opendir e una readdir
+//con opendir apre la directory passata da tastiera e salvata in una stringa e ritorna un puntatore allo stream della directory, questa funzione permette un list di file.
+
+int Ncores;
+int i;
+int res;
+pthread_t th;
+int tipo;
+int thread;
+int risultato;
+
+pthread_mutex_init(&mutex_lista, NULL);
+pthread_mutex_init(&mutex2_lista, NULL);
+
+for(i=0; i<N; i++){
+controlloterminazione[i]= 0;
+}
+struct dirent *de;
+//apre la direcory corrente dove mi trovo e la assegna ad un puntatore
+DIR *dr;
+char path[N];
+printf("inserisci il path assoluto: \n");
+scanf("%s", path);
+dr = opendir(path);
+//tramite readdir stampo i vari campi della lista essendo un while
+while((de = readdir(dr)) != NULL){
+//salvo l'elemento in una lista e incremento la lista
+if(de->d_type == DT_DIR){
+tipo = 1;
+}else{
+tipo = 0;
+}
+if(strncmp(de->d_name, ".", 1)!=0){
+pthread_mutex_lock(&mutex_lista);
+inserimentoordinatoinlista(&lis, de->d_name, tipo, path);
+pthread_mutex_unlock(&mutex_lista);
+}
+}
+visitalista(lis);
+printf("INSERIMENTO EFFETTUATO!\n");
+closedir(dr);
+
+//così vedo il numero di core
+Ncores = get_nprocs_conf();
+printf("%d\n", Ncores);
+
+for(i=0;i<Ncores;i++){
+res = pthread_create(&th, NULL, funzione_thread, (void *)(intptr_t)i);
+if (res != 0){
+perror("CREAZIONE FALLITA\n");
+exit(EXIT_FAILURE);
+}//if
+
+}//for
+//for(i=0; i<Ncores; i++){
+if((pthread_join(th, NULL)) != 0){
+perror("Errore");
+exit(EXIT_FAILURE);
+//}
+}
+printf("//////////////////////////////////////////////\n");
+visitalista(lis);
+pthread_mutex_destroy(&mutex_lista);
+pthread_mutex_destroy(&mutex2_lista);
+
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void* funzione_thread(void* arg){
+int numcores = (intptr_t)arg;
+int finito = 0;
+Tipolista Esistedirectory;
+DIR *dr;
+int tipo;
+struct dirent *de;
+char pathaux[200];
+int i = 0;
+//faccio scorrere la lista e trovo la directory
+while(!finito){
+pthread_mutex_lock(&mutex_lista);
+Esistedirectory = trovaDir(lis);
+pthread_mutex_unlock(&mutex_lista);
+if(Esistedirectory != NULL){
+Esistedirectory->next = NULL;
+pthread_mutex_lock(&mutex_lista);
+eliminadirectory(&lis, Esistedirectory->info);
+pthread_mutex_unlock(&mutex_lista);
+strcpy(pathaux,Esistedirectory->info.path);
+pthread_mutex_lock(& mutex2_lista);
+controlloterminazione[numcores] = 0;
+pthread_mutex_unlock(& mutex2_lista);
+dr = opendir(pathaux);
+pthread_mutex_lock(&mutex_lista);
+while((de = readdir(dr)) != NULL){
+//salvo l'elemento in una lista e incremento la lista
+
+if(de->d_type == DT_DIR){
+tipo = 1;
+if(strncmp(de->d_name, ".", 1)!=0){
+inserimentoordinatoinlista(&lis, de->d_name, tipo, pathaux);
+}
+}else{
+tipo = 0;
+if(strncmp(de->d_name, ".", 1)!=0){
+inserimentoordinatoinlista(&lis, de->d_name, tipo, pathaux);
+}//if
+}
+
+}//while
+pthread_mutex_unlock(&mutex_lista);
+}//if
+finito = 1;
+}//while
+}
